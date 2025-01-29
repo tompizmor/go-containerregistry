@@ -64,7 +64,15 @@ func GCRBackoff() retry.Backoff {
 func Copy(src, dst string, opts ...Option) error {
 	o := makeOptions(opts...)
 	// Just reuse crane's copy logic with gcrane's credential logic.
-	return crane.Copy(src, dst, o.crane...)
+	err := crane.Copy(src, dst, o.crane...)
+	if err != nil {
+		if strings.Contains(err.Error(), "The specified key does not exist.") {
+			logs.Warn.Printf("WARNING: Skipping %s because the specified key does not exist.", src)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // CopyRepository copies everything from the src GCR repository to the
@@ -152,7 +160,15 @@ func recursiveCopy(ctx context.Context, src, dst string, o *options) error {
 				// If we hit an error when trying to copy the images,
 				// retry with backoff.
 				if err := backoffErrors(GCRBackoff(), func() error {
-					return c.copyImages(ctx, task)
+					err := c.copyImages(ctx, task)
+					if err != nil {
+						if strings.Contains(err.Error(), "BLOB_UNKNOWN: failed to read config blob") {
+							logs.Warn.Printf("WARNING: failed copy image for repo %s: %v", task.digest, err)
+							return nil
+						}
+						return err
+					}
+					return nil
 				}); err != nil {
 					return fmt.Errorf("failed to copy %q: %w", task.digest, err)
 				}
@@ -214,7 +230,15 @@ func (c *copier) copyImages(_ context.Context, t task) error {
 		srcImg := fmt.Sprintf("%s@%s", t.oldRepo, t.digest)
 		dstImg := fmt.Sprintf("%s@%s", t.newRepo, t.digest)
 
-		return crane.Copy(srcImg, dstImg, c.opt.crane...)
+		err := crane.Copy(srcImg, dstImg, c.opt.crane...)
+		if err != nil {
+			if strings.Contains(err.Error(), "The specified key does not exist.") {
+				logs.Warn.Printf("WARNING: Skipping %s because the specified key does not exist.", srcImg)
+				return nil
+			}
+			return err
+		}
+		return nil
 	}
 
 	// We only need to push the whole image once.
@@ -222,8 +246,13 @@ func (c *copier) copyImages(_ context.Context, t task) error {
 	srcImg := fmt.Sprintf("%s:%s", t.oldRepo, tag)
 	dstImg := fmt.Sprintf("%s:%s", t.newRepo, tag)
 
-	if err := crane.Copy(srcImg, dstImg, c.opt.crane...); err != nil {
-		return err
+	err := crane.Copy(srcImg, dstImg, c.opt.crane...)
+	if err != nil {
+		if strings.Contains(err.Error(), "The specified key does not exist.") {
+			logs.Warn.Printf("WARNING: Skipping %s because the specified key does not exist.", srcImg)
+		} else {
+			return err
+		}
 	}
 
 	if len(t.manifest.Tags) <= 1 {

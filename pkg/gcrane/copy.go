@@ -162,7 +162,7 @@ func recursiveCopy(ctx context.Context, src, dst string, o *options) error {
 				if err := backoffErrors(GCRBackoff(), func() error {
 					err := c.copyImages(ctx, task)
 					if err != nil {
-						if strings.Contains(err.Error(), "BLOB_UNKNOWN: failed to read config blob") {
+						if strings.Contains(err.Error(), "BLOB_UNKNOWN: failed to read config blob") || strings.Contains(err.Error(), "BLOB_UNKNOWN: Manifest references unknown blob") {
 							logs.Warn.Printf("WARNING: failed copy image for repo %s: %v", task.digest, err)
 							return nil
 						}
